@@ -1,15 +1,22 @@
 package kis.covid19;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.URL;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 public class CsvLoader {
 
@@ -44,17 +51,50 @@ public class CsvLoader {
     };
 
     /**
-     * @param args パース可能な日付表現。省略した場合は現在時刻が採用される。
+     * @param args パース可能な日付表現の配列。省略した場合は現在までの日付の配列が採用される。
      * @throws IOException
      */
     public static void main(String[] args) throws IOException {
-        final LocalDate date;
-        if (args.length > 0) {
-            date = LocalDate.parse(args[0]);
-        } else {
-            date = LocalDate.now();
+        var dates = createDates(args);
+
+        for (var date : dates) {
+            createPrefJson(date);
         }
 
+        CreateData.main(args);
+    }
+
+    static List<LocalDate> createDates(final String[] args) {
+        if (args.length > 0) {
+            return Arrays.stream(args).map(LocalDate::parse).collect(Collectors.toList());
+        } else {
+            var files = new File("data").listFiles();
+            if (files != null) {
+                var existDateTexts = Arrays.stream(files)
+                        .flatMap(file -> {
+                            var regex = Pattern.compile("prefs(\\d{4}-\\d{2}-\\d{2}).json");
+                            var match = regex.matcher(file.getName());
+                            if (match.matches()) {
+                                return Stream.of(match.group(1));
+                            } else {
+                                return Stream.empty();
+                            }
+                        })
+                        .collect(Collectors.toList());
+                var dates = new ArrayList<LocalDate>();
+                var date = LocalDate.now();
+                while (!existDateTexts.contains(date.format(DateTimeFormatter.ISO_LOCAL_DATE))) {
+                    dates.add(date);
+                    date = date.minusDays(1);
+                }
+                return dates;
+            } else {
+                return Collections.emptyList();
+            }
+        }
+    }
+
+    static void createPrefJson(final LocalDate date) throws IOException {
         var targetDate = date.minusDays(1);
         var patients = readCsv(targetDate, confirmedCasesCumulativeDaily, 0);
         var hospitalizations = readCsv(targetDate, requiringInpatientCareEtcDaily, 0);
@@ -79,8 +119,6 @@ public class CsvLoader {
                 .collect(Collectors.toList());
 
         PrefJsonProc.writeJson(date, prefs);
-
-        CreateData.main(args);
     }
 
     static Map<String, Integer> readCsv(final LocalDate targetDate, final String url, final int columnIndex) throws IOException {
